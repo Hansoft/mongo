@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+
+set -e
+
+OutputDir="$1"
+SysName=$(uname -s)
+ProcessorArch=$(uname -m)
+
+if [[ $SysName ==  Darwin* ]] ; then
+	OutputPlatform=OSX
+	NumCPUs=`sysctl -n hw.ncpu`
+	BuildPlatform=OSX10.7
+	StripCommand="strip -u -r"
+elif [[ $SysName ==  Linux* ]] ; then
+	OutputPlatform=Linux/Ubuntu1604
+	NumCPUs=`grep -c "processor" /proc/cpuinfo`
+	BuildPlatform=Linux2.6
+	StripCommand="strip --strip-unneeded"
+else
+	echo "Couldn't detect system"
+	exit 1
+fi
+
+if [[ $ProcessorArch == i*86 ]] ; then
+	BuildArch=x86
+elif [[ $ProcessorArch == x86_64 ]] ; then
+	BuildArch=x64
+else
+	echo $ProcessorArch is not a recognized architecture
+	exit 1
+fi
+
+MalterlibRoot="${MalterlibRoot:-/Development/Malterlib/Dev}"
+OpenSSLRoot="${OpenSSLRoot:-$MalterlibRoot/SDK/OpenSSL}"
+
+ToBuild="mongo mongod"
+
+scons $ToBuild -j $NumCPUs --release --ssl --ssl-static "--ssl-lib-dir=$OpenSSLRoot/build/lib/$BuildPlatform/clang_libc++/$BuildArch/Release" "--ssl-include-dir=$OpenSSLRoot/build/include/$BuildPlatform/$BuildArch"
+
+if [[ "$OutputDir" != "" ]]; then
+	OutputBinDir="$OutputDir/$OutputPlatform/mongo/bin/"
+	mkdir -p $OutputBinDir
+
+	for Tool in $ToBuild ; do
+		cp -f $Tool $OutputBinDir
+		$StripCommand "$OutputBinDir/$Tool"
+	done
+fi
