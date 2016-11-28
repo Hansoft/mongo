@@ -673,6 +673,40 @@ Status SSLManager::initSSLContext(SSL_CTX* context,
         }
     }
 
+    if (direction == ConnectionDirection::kIncoming) {
+        auto privateKey = SSL_CTX_get0_privatekey(context);
+        if (!privateKey)
+            return Status(ErrorCodes::InvalidSSLConfiguration, 
+                          "Can not set up perfect forward secrecy (no private key).");
+        int curveName = 0;
+        if (auto keyRSA = EVP_PKEY_get1_RSA(privateKey)) {
+            auto RSASize = RSA_size(keyRSA) * 8;
+            RSA_free(keyRSA);
+            // Match curve security to security of RSA key
+            if (RSASize >= 12288)
+                curveName = NID_secp521r1;
+            else if (RSASize >= 4096)
+                curveName = NID_secp384r1;
+            else
+                curveName = NID_X9_62_prime256v1;
+        } else if (auto keyEC = EVP_PKEY_get1_EC_KEY(privateKey)) {
+            curveName = EC_GROUP_get_curve_name(EC_KEY_get0_group(keyEC));
+            if (!curveName)
+                curveName = NID_secp521r1;
+            EC_KEY_free(keyEC);
+        }
+        if (curveName) {
+            EC_KEY *curveKey = EC_KEY_new_by_curve_name(curveName);
+            if (curveKey) {
+                SSL_CTX_set_options(context, SSL_OP_SINGLE_ECDH_USE);
+                if (SSL_CTX_set_tmp_ecdh(context, curveKey) != 1)
+                    SSL_CTX_set_ecdh_auto(context, 1);
+                EC_KEY_free(curveKey);     
+            } else
+                SSL_CTX_set_ecdh_auto(context, 1);
+        }
+    }
+
     const auto status =
         params.sslCAFile.empty() ? _setupSystemCA(context) : _setupCA(context, params.sslCAFile);
     if (!status.isOK())
