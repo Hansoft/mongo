@@ -186,6 +186,19 @@ add_option('ssl',
     nargs=0
 )
 
+add_option('ssl-static',
+    help='Enable static linking with OpenSSL',
+    nargs=0
+)
+
+add_option('ssl-include-dir',
+    help='Specify include path for OpenSSL',
+)
+
+add_option('ssl-lib-dir',
+    help='Specify lib path for OpenSSL',
+)
+
 add_option('mmapv1',
     choices=['auto', 'on', 'off'],
     default='auto',
@@ -2636,6 +2649,11 @@ def doConfigure(myenv):
         else:
             return False
 
+    if posix_system:
+        conf.env.SetConfigHeaderDefine("MONGO_CONFIG_HAVE_HEADER_UNISTD_H")
+        conf.CheckLib('rt')
+        conf.CheckLib('dl')
+
     if has_option( "ssl" ):
         sslLibName = "ssl"
         cryptoLibName = "crypto"
@@ -2656,21 +2674,33 @@ def doConfigure(myenv):
                 'Security',
             ])
 
-        if not conf.CheckLibWithHeader(
-                sslLibName,
-                ["openssl/ssl.h"],
-                "C",
-                "SSL_version(NULL);",
-                autoadd=True):
-            conf.env.ConfError("Couldn't find OpenSSL ssl.h header and library")
+        if has_option( "ssl-static" ):
+            includeDir = get_option('ssl-include-dir').rstrip('/')
+            libDir = get_option('ssl-lib-dir').rstrip('/')
+            conf.env.AppendUnique(CPPPATH=[
+                includeDir
+            ])
+            sslLib = File(libDir + "/" + env['LIBPREFIX'] + sslLibName + env['LIBSUFFIX'])
+            cryptoLib = File(libDir + "/" + env['LIBPREFIX'] + cryptoLibName + env['LIBSUFFIX'])
+            conf.env.AppendUnique(LIBS=[
+                sslLib, cryptoLib
+            ])
+        else:
+            if not conf.CheckLibWithHeader(
+                    sslLibName,
+                    ["openssl/ssl.h"],
+                    "C",
+                    "SSL_version(NULL);",
+                    autoadd=True):
+                conf.env.ConfError("Couldn't find OpenSSL ssl.h header and library")
 
-        if not conf.CheckLibWithHeader(
-                cryptoLibName,
-                ["openssl/crypto.h"],
-                "C",
-                "SSLeay_version(0);",
-                autoadd=True):
-            conf.env.ConfError("Couldn't find OpenSSL crypto.h header and library")
+            if not conf.CheckLibWithHeader(
+                    cryptoLibName,
+                    ["openssl/crypto.h"],
+                    "C",
+                    "SSLeay_version(0);",
+                    autoadd=True):
+                conf.env.ConfError("Couldn't find OpenSSL crypto.h header and library")
 
         def CheckLinkSSL(context):
             test_body = """
@@ -2799,11 +2829,6 @@ def doConfigure(myenv):
                 "BOOST_THREAD_HAS_NO_EINTR_BUG",
             ],
         )
-
-    if posix_system:
-        conf.env.SetConfigHeaderDefine("MONGO_CONFIG_HAVE_HEADER_UNISTD_H")
-        conf.CheckLib('rt')
-        conf.CheckLib('dl')
 
     if posix_monotonic_clock:
         conf.env.SetConfigHeaderDefine("MONGO_CONFIG_HAVE_POSIX_MONOTONIC_CLOCK")
